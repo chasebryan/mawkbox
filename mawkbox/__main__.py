@@ -1,7 +1,26 @@
 import argparse
+import sys
 from getpass import getpass
+from importlib import import_module
 from pathlib import Path
 from .signal import pack, modulate, write_wav, decode
+
+
+def launch_gui():
+    try:
+        gui = import_module('.gui', __package__)
+    except ModuleNotFoundError as exc:
+        if exc.name not in ('tkinter', '_tkinter'):
+            raise
+        if sys.platform == 'darwin':
+            version = f'{sys.version_info[0]}.{sys.version_info[1]}'
+            hint = f'For Homebrew Python, run: brew install python-tk@{version}'
+        elif sys.platform.startswith('linux'):
+            hint = 'Install Tk for your Python: sudo apt install python3-tk (Debian/Ubuntu) or sudo dnf install python3-tkinter (Fedora).'
+        else:
+            hint = 'Install Python with Tcl/Tk support enabled, then recreate the virtual environment if you change Python installations.'
+        raise RuntimeError(f'Tk is required for the desktop window. {hint}\nVerify with: python -m tkinter\nThen run mawkbox again.') from exc
+    gui.launch()
 
 
 def main():
@@ -19,8 +38,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.command in (None, 'gui'):
-            from .gui import launch
-            launch()
+            launch_gui()
         elif args.command == 'encode':
             password = None if args.plain else getpass('Passphrase: ')
             frame = pack(args.message, password)

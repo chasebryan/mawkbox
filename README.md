@@ -19,7 +19,15 @@ python -m pip install .
 mawkbox
 ```
 
-On Fedora, install the system prerequisites with `sudo dnf install python3-tkinter ffmpeg-free`. If that FFmpeg build lacks `libx264`, install a build with H.264 encoding support before exporting video. On Debian/Ubuntu: `sudo apt install python3-tk python3-venv ffmpeg`. Windows and macOS need a Python installation with Tk and `ffmpeg` available on PATH.
+On macOS with Homebrew Python 3.14, install the system prerequisites first:
+
+```sh
+brew install python-tk@3.14 ffmpeg
+```
+
+The Tk package must match the Python major/minor version used by the virtual environment (`python --version`). For example, Python 3.13 needs `python-tk@3.13`. Homebrew supplies Tk separately from Python; it is not a pip dependency. If mawkbox reports `No module named '_tkinter'` or `No module named 'tkinter'`, install the matching Homebrew Tk package, verify with `python -m tkinter` (close its test window), then run `mawkbox` again. An existing virtual environment normally needs no reinstall for this missing module. If Homebrew upgrades or replaces its base Python and the environment no longer runs, recreate the environment and reinstall mawkbox.
+
+On Fedora, install the system prerequisites with `sudo dnf install python3-tkinter ffmpeg-free`. If that FFmpeg build lacks `libx264`, install a build with H.264 encoding support before exporting video. On Debian/Ubuntu: `sudo apt install python3-tk python3-venv ffmpeg`. Windows needs a Python installation with Tcl/Tk support enabled and `ffmpeg` available on PATH.
 
 The desktop window contains a message editor, a red signal scope, a passphrase field, audio/video exports, and a file decoder. Encryption is selected by default. Choose **Plain encoding (no secrecy)** only when secrecy is unnecessary. Retain the passphrase separately: mawkbox cannot recover a lost one.
 
