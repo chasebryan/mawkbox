@@ -2,13 +2,12 @@
 import queue
 import threading
 import tkinter as tk
-from tkinter import filedialog, ttk
-from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
+from .exports import export_transmission
 from .playback import Player, inspect_media
-from .signal import pack, modulate, write_wav, decode, read_audio, RATE
-from .video import render_video
+from .signal import validate_message, decode, read_audio, RATE
 
 BG, PANEL, RED, FG = '#090b0e', '#13161c', '#ff334f', '#edf0f4'
 
@@ -38,6 +37,8 @@ class Workspace:
         style.map('TButton', background=[('active', '#343841')])
         box = tk.Frame(root, bg=BG, padx=24, pady=18)
         box.pack(fill='both', expand=True)
+        footer = tk.Frame(box, bg=BG)
+        footer.pack(side='bottom', fill='x', pady=(8, 0))
         tk.Label(box, text='mawkbox', font=('TkDefaultFont', 24, 'bold'), bg=BG, fg=FG).pack(anchor='w')
         tk.Label(box, text='COMPOSE  /  PLAY  /  RECOVER', bg=BG, fg='#858c98').pack(anchor='w', pady=(2, 12))
         tk.Label(box, text='MESSAGE', bg=BG, fg=FG).pack(anchor='w')
@@ -74,8 +75,8 @@ class Workspace:
         tk.Label(box, text='PASSPHRASE', bg=BG, fg='#858c98').pack(anchor='w', pady=(6, 4))
         self.password = tk.Entry(box, show='•', bg=PANEL, fg=FG, insertbackground=RED, relief='flat')
         self.password.pack(fill='x', ipady=6)
-        row = tk.Frame(box, bg=BG)
-        row.pack(fill='x', pady=(12, 10))
+        row = tk.Frame(footer, bg=BG)
+        row.pack(fill='x', pady=(4, 8))
         self.buttons = []
         for text, action in [('Export WAV', lambda: self.export(False)), ('Export MP4 + WAV', lambda: self.export(True)),
                              ('Open media', self.open_media), ('Decode file', self.open)]:
@@ -83,7 +84,11 @@ class Workspace:
             button.pack(side='left', padx=(0, 6))
             self.buttons.append(button)
         self.status = tk.StringVar(value='Ready. Open or export a transmission to play it here.')
-        tk.Label(box, textvariable=self.status, bg=BG, fg='#a3a9b3', wraplength=670, justify='left').pack(anchor='w')
+        self.saved_file = tk.StringVar(value='No export yet.')
+        self.receipt = tk.Entry(footer, textvariable=self.saved_file, state='readonly', relief='flat',
+                                readonlybackground=BG, fg='#7ebf99')
+        self.receipt.pack(fill='x', pady=(0, 4))
+        tk.Label(footer, textvariable=self.status, bg=BG, fg='#a3a9b3', wraplength=670, justify='left').pack(anchor='w')
         self._poll_id = root.after(30, self.poll)
 
     def draw(self):
@@ -155,7 +160,7 @@ class Workspace:
         self.controls()
         self.draw()
 
-    def run(self, operation):
+    def run(self, operation, error_title=None):
         if self.busy:
             return
         self.busy = True
@@ -167,7 +172,7 @@ class Workspace:
             try:
                 self.events.put(('ok', operation()))
             except Exception as exc:
-                self.events.put(('error', str(exc)))
+                self.events.put(('error', (str(exc), error_title)))
         threading.Thread(target=work, daemon=True).start()
 
     def load_media(self, media, audio):
@@ -188,11 +193,19 @@ class Workspace:
             for button in self.buttons:
                 button.configure(state='normal')
             if kind == 'error':
-                self.status.set(value)
+                error, title = value
+                self.status.set(error)
+                if title:
+                    messagebox.showerror(title, error, parent=self.root)
             elif value[0] == 'decode':
                 self.message.delete('1.0', 'end')
                 self.message.insert('1.0', value[1])
                 self.status.set('Message recovered successfully.')
+            elif value[0] == 'export':
+                result = value[1]
+                self.saved_file.set(f'Last saved: {result.media.path}')
+                self.status.set('Export complete.')
+                self.load_media(result.media, result.audio)
             else:
                 self.status.set(value[3])
                 self.load_media(value[1], value[2])
@@ -218,25 +231,34 @@ class Workspace:
         self._poll_id = self.root.after(30, self.poll)
 
     def export(self, video):
-        suffix = '.mp4' if video else '.wav'
-        name = filedialog.asksaveasfilename(defaultextension=suffix, filetypes=[('mawkbox output', '*'+suffix)])
-        if not name:
+        if self.busy:
             return
-        self.stop()
         message = self.message.get('1.0', 'end-1c')
         password = None if self.plain.get() else self.password.get()
-        def operation():
-            frame = pack(message, password)
-            audio = modulate(frame)
-            base = Path(name).resolve()
-            wav = base.with_suffix('.wav')
-            write_wav(wav, audio)
-            base.with_suffix('.mawkbox').write_bytes(frame)
-            output = base.with_suffix('.mp4') if video else wav
-            if video:
-                render_video(output, audio, wav)
-            return ('media', inspect_media(output), audio, f'Exported {base.name} and companion files.')
-        self.run(operation)
+        try:
+            validate_message(message, password)
+        except ValueError as exc:
+            self.status.set(str(exc))
+            messagebox.showerror('Cannot export', str(exc), parent=self.root)
+            if password == '':
+                self.password.focus_set()
+            else:
+                self.message.focus_set()
+            return
+        suffix = '.mp4' if video else '.wav'
+        try:
+            name = filedialog.asksaveasfilename(parent=self.root, title='Export MP4' if video else 'Export WAV',
+                                                initialfile='transmission'+suffix, defaultextension=suffix,
+                                                filetypes=[('MP4 video' if video else 'WAV audio', '*'+suffix)])
+        except tk.TclError as exc:
+            self.status.set(str(exc))
+            messagebox.showerror('Cannot open save dialog', str(exc), parent=self.root)
+            return
+        if not name:
+            self.status.set('Export cancelled.')
+            return
+        self.stop()
+        self.run(lambda: ('export', export_transmission(name, message, password, video)), error_title='Export failed')
 
     def open_media(self):
         name = filedialog.askopenfilename(filetypes=[('Playable transmissions', '*.wav *.mp4')])

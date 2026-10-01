@@ -42,6 +42,67 @@ class DesktopSmoke(unittest.TestCase):
         box = self.root.winfo_children()[0]
         for widget in box.winfo_children():
             self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), self.root.winfo_rooty() + self.root.winfo_height())
+        self.assertTrue(self.workspace.receipt.winfo_ismapped())
+
+    def test_export_button_requires_passphrase_before_save_dialog(self):
+        with patch('mawkbox.gui.filedialog.asksaveasfilename') as dialog, \
+             patch('mawkbox.gui.messagebox.showerror') as error:
+            self.workspace.buttons[0].invoke()
+        dialog.assert_not_called()
+        error.assert_called_once_with('Cannot export', 'Enter a passphrase or select plain encoding.', parent=self.root)
+        self.assertFalse(self.workspace.busy)
+        self.assertIn('passphrase', self.workspace.status.get())
+
+    def test_export_wav_button_saves_without_probe_or_autoplay(self):
+        from mawkbox.signal import unpack
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'message.wav'
+            self.workspace.password.insert(0, 'secret')
+            self.workspace.autoplay.set(False)
+            with patch('mawkbox.gui.filedialog.asksaveasfilename', return_value=str(target)) as dialog, \
+                 patch('mawkbox.gui.inspect_media', side_effect=AssertionError('Export must not probe')):
+                self.workspace.buttons[0].invoke()
+                self.wait_for(lambda: self.workspace.saved_file.get() == f'Last saved: {target}')
+            self.assertEqual(dialog.call_args.kwargs['parent'], self.root)
+            self.assertTrue(target.is_file())
+            self.assertEqual(unpack(target.with_suffix('.mawkbox').read_bytes(), 'secret'), 'Good morning, NSA.')
+            self.assertEqual(self.workspace.player.state, 'ready')
+            self.assertEqual(self.workspace.status.get(), 'Export complete.')
+
+    def test_successful_save_receipt_survives_playback_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'message.wav'
+            self.workspace.plain.set(True)
+            with patch('mawkbox.gui.filedialog.asksaveasfilename', return_value=str(target)), \
+                 patch('mawkbox.gui.Player.play', side_effect=RuntimeError('Audio device unavailable')):
+                self.workspace.buttons[0].invoke()
+                self.wait_for(lambda: not self.workspace.busy)
+            self.assertTrue(target.is_file())
+            self.assertEqual(self.workspace.saved_file.get(), f'Last saved: {target}')
+            self.assertEqual(self.workspace.status.get(), 'Audio device unavailable')
+
+    def test_write_error_is_visible_and_buttons_recover(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'message.wav'
+            self.workspace.plain.set(True)
+            with patch('mawkbox.gui.filedialog.asksaveasfilename', return_value=str(target)), \
+                 patch('mawkbox.exports.write_wav', side_effect=OSError('Disk full')), \
+                 patch('mawkbox.gui.messagebox.showerror') as error:
+                self.workspace.buttons[0].invoke()
+                self.wait_for(lambda: not self.workspace.busy)
+            error.assert_called_once_with('Export failed', 'Disk full', parent=self.root)
+            self.assertEqual(self.workspace.saved_file.get(), 'No export yet.')
+            self.assertFalse(target.exists())
+            self.assertEqual(str(self.workspace.buttons[0]['state']), 'normal')
+
+    def test_save_dialog_cancel_does_not_start_export(self):
+        self.workspace.plain.set(True)
+        with patch('mawkbox.gui.filedialog.asksaveasfilename', return_value=''), \
+             patch('mawkbox.gui.export_transmission') as save:
+            self.workspace.buttons[0].invoke()
+        save.assert_not_called()
+        self.assertEqual(self.workspace.status.get(), 'Export cancelled.')
+        self.assertFalse(self.workspace.busy)
 
     @unittest.skipUnless(all(shutil.which(x) for x in ('ffmpeg', 'ffplay', 'ffprobe')), 'full FFmpeg package required')
     def test_export_autoplays_audio_with_pause_and_seek(self):
