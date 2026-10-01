@@ -32,11 +32,13 @@ On Fedora, install the system prerequisites with `sudo dnf install python3-tkint
 The desktop window contains a message editor, an embedded video/audio preview, a passphrase field, exports, and a file decoder. Encryption is selected by default. Choose **Plain encoding (no secrecy)** only when secrecy is unnecessary. Retain the passphrase separately: mawkbox cannot recover a lost one.
 
 - **Export WAV** writes `.wav` and `.mawkbox` files.
+- For encrypted export, enter a passphrase first; for unencrypted output, select **Plain encoding (no secrecy)**. Invalid input is explained before the save dialog opens. Saving failures appear in an error dialog.
 - **Export MP4 + WAV** writes `.mp4`, `.wav`, and `.mawkbox` files.
 - **Open media** opens a WAV or MP4 for immediate playback in mawkbox. Playback does not require a passphrase; decoding an encrypted message does.
 - **Play video** shows the actual MP4 frames in the preview panel and plays its audio. **Play audio** listens to the loaded file with an animated signal trace. Both buttons replay from the beginning.
 - **Pause / Resume**, **Stop**, and the seek slider control playback. Seeking while paused updates the video preview without starting the audio.
 - **Autoplay** starts newly exported or opened media immediately. Uncheck it to load files without playing them.
+- The **Last saved** field shows the exact export path and can be copied. It remains visible if playback fails. WAV export itself requires no FFmpeg tools; video export and playback do.
 - **Decode file** opens any of those formats and recovers its message in the editor. Enter the original passphrase first for an encrypted transmission.
 
 The scope and video show samples from the actual encoded audio. The message and passphrase do not appear in the video. Files are processed locally; no accounts or network services are used. Closing the window, stopping playback, or loading another file releases the playback processes.

@@ -27,13 +27,18 @@ def key(password, salt):
     return Scrypt(salt=salt, length=32, n=2**14, r=8, p=1).derive(password.encode('utf-8'))
 
 
-def pack(text, password=None):
+def validate_message(text, password=None):
     payload = text.encode('utf-8')
     if len(payload) > MAX_TEXT:
         raise ValueError('Message exceeds 4096 UTF-8 bytes.')
-    flags = int(password is not None)
-    if flags and not password:
+    if password is not None and not password:
         raise ValueError('Enter a passphrase or select plain encoding.')
+    return payload
+
+
+def pack(text, password=None):
+    payload = validate_message(text, password)
+    flags = int(password is not None)
     salt, nonce = (os.urandom(16), os.urandom(12)) if flags else (b'', b'')
     size = len(payload) + (44 if flags else 0)
     header = HEADER.pack(MAGIC, 1, flags, size)
